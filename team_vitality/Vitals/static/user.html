@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>PEDIASCAPE Bot Detector</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      text-align: center;
+      padding: 40px;
+    }
+    #status {
+      margin-top: 20px;
+      font-size: 1.2em;
+    }
+  </style>
+</head>
+<body>
+  <h1>Welcome to PEDIASCAPE</h1>
+  <p>This page is secured with passive bot detection.</p>
+  <div id="status">Detecting...</div>
+
+  <!-- Load the Passive Tracker -->
+  <script src="Vitals/scripts/passive-tracker.js"></script>
+  <script src="/Vitals/scripts/passive-tracker.js"></script>
+
+  <script>
+    // Wait for PassiveTracker to finish collecting data
+    window.addEventListener('dataReady', async function () {
+      const data = window.passiveData || {};
+      const apiKey = "e5a74d0c291f4603f99de0cf607492a6";
+
+      try {
+        const res = await fetch('http://127.0.0.1:8000/api/verify', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey
+          },
+          body: JSON.stringify(data)
+        });
+
+        const result = await res.json();
+        document.getElementById('status').innerText =
+          `Verdict: ${result.verdict.toUpperCase()} (Confidence: ${result.confidence})`;
+      } catch (err) {
+        document.getElementById('status').innerText = "Detection failed.";
+        console.error(err);
+      }
+    });
+  </script>
+</body>
+</html>

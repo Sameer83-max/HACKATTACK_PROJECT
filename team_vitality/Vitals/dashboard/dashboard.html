@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PEDIAScape - Session Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+    .chart-container {
+      max-width: 800px;
+      margin: 30px auto;
+      background: #fff;
+      padding: 20px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+      border-radius: 8px;
+    }
+    .verdict-box, .info-box {
+      text-align: center;
+      margin: 20px auto;
+      padding: 20px;
+      background-color: #e0f7fa;
+      border-left: 6px solid #00acc1;
+      font-size: 18px;
+      font-weight: bold;
+    }
+    canvas {
+      max-height: 400px;
+    }
+  </style>
+</head>
+<body>
+  <h2>Latest User Session Dashboard</h2>
+  <div class="verdict-box" id="verdictBox">Loading verdict...</div>
+  <div class="info-box" id="infoBox">Loading info...</div>
+
+  <div class="chart-container">
+    <canvas id="mouseChart"></canvas>
+  </div>
+  <div class="chart-container">
+    <canvas id="clickChart"></canvas>
+  </div>
+
+  <script>
+    async function fetchLatestSession() {
+      const res = await fetch('http://127.0.0.1:8000/api/sessions');
+      const sessions = await res.json();
+      return sessions[sessions.length - 1];
+    }
+
+    function updateVerdict(verdict, confidence) {
+      const box = document.getElementById('verdictBox');
+      box.textContent = `Verdict: ${verdict.toUpperCase()} (Confidence: ${confidence})`;
+    }
+
+    function updateInfo(data) {
+      const box = document.getElementById('infoBox');
+      box.innerHTML = `OS: ${data.os} | Screen: ${data.screenResolution} | Language: ${data.language} | Timezone: ${data.timezone}`;
+    }
+
+    function renderLineChart(ctxId, label, points) {
+      const ctx = document.getElementById(ctxId).getContext('2d');
+      new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: points.map((_, i) => i + 1),
+          datasets: [{
+            label: label,
+            data: points,
+            fill: false,
+            borderColor: '#42a5f5',
+            tension: 0.3
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: { display: true },
+            title: { display: true, text: label }
+          },
+          scales: {
+            x: { title: { display: true, text: 'Index' } },
+            y: { title: { display: true, text: 'Value' }, beginAtZero: true }
+          }
+        }
+      });
+    }
+
+    async function main() {
+      const session = await fetchLatestSession();
+      const data = session.raw;
+      updateVerdict(session.verdict, session.confidence);
+      updateInfo(data);
+
+      try {
+        const mouseData = JSON.parse(data.mouseMovementPatterns || '[]');
+        const clickData = JSON.parse(data.clickTimings || '[]');
+        renderLineChart('mouseChart', 'Mouse Movement Patterns', mouseData);
+        renderLineChart('clickChart', 'Click Timings', clickData);
+      } catch (err) {
+        console.error('Error parsing mouse or click data:', err);
+      }
+    }
+
+    main();
+  </script>
+</body>
+</html>

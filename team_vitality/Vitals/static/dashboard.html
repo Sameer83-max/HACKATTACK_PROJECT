@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Session Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      margin: 0;
+    }
+
+    h1 {
+      margin-bottom: 10px;
+    }
+
+    canvas {
+      max-width: 100%;
+      background: white;
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+
+    label {
+      font-weight: bold;
+    }
+
+    select,
+    input[type="date"] {
+      padding: 5px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 10px;
+    }
+
+    th,
+    td {
+      border: 1px solid #ddd;
+      padding: 8px;
+      word-wrap: break-word;
+    }
+
+    th {
+      background-color: #f4f4f4;
+    }
+
+    tr.bot {
+      background-color: #ffe5e5;
+    }
+
+    tr.human {
+      background-color: #e5ffe5;
+    }
+
+    .json-cell {
+      max-height: 150px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      display: block;
+    }
+
+    .pagination {
+      margin-top: 10px;
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+    }
+
+    button {
+      padding: 8px 12px;
+      font-size: 14px;
+    }
+
+    @media (max-width: 768px) {
+
+      table,
+      thead,
+      tbody,
+      th,
+      td,
+      tr {
+        display: block;
+      }
+
+      th {
+        position: absolute;
+        top: -9999px;
+        left: -9999px;
+      }
+
+      td {
+        position: relative;
+        padding-left: 50%;
+      }
+
+      td:before {
+        content: attr(data-label);
+        position: absolute;
+        left: 10px;
+        font-weight: bold;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <h1>Session Dashboard</h1>
+
+  <div class="controls">
+    <label for="chartType">Chart Type:</label>
+    <select id="chartType" onchange="renderChart()">
+      <option value="bar">Bar</option>
+      <option value="pie">Pie</option>
+      <option value="line">Line</option>
+    </select>
+
+    <label for="verdictFilter">Filter by Verdict:</label>
+    <select id="verdictFilter" onchange="applyFilters()">
+      <option value="all">All</option>
+      <option value="bot">Bot</option>
+      <option value="human">Human</option>
+    </select>
+
+    <label for="startDate">Start Date:</label>
+    <input type="date" id="startDate" onchange="applyFilters()" />
+
+    <label for="endDate">End Date:</label>
+    <input type="date" id="endDate" onchange="applyFilters()" />
+  </div>
+
+  <canvas id="chartCanvas" height="150px"></canvas>
+  <br />
+  <button onclick="downloadChart()">Download Chart as PNG</button>
+
+
+  <button onclick="downloadCSV()">Download CSV</button>
+  <table id="sessionTable">
+    <thead>
+      <tr>
+        <th>Timestamp</th>
+        <th>Verdict</th>
+        <th>Confidence</th>
+        <th>Details (JSON)</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+  <div class="pagination">
+    <button onclick="prevPage()">Previous</button>
+    <span id="pageIndicator">Page 1</span>
+    <button onclick="nextPage()">Next</button>
+  </div>
+
+  <script>
+    let sessionData = [];
+    let filteredData = [];
+    let currentPage = 1;
+    const pageSize = 10;
+    let chart;
+
+    async function fetchSessions() {
+      try {
+        const res = await fetch('http://127.0.0.1:8000/api/sessions');
+        sessionData = await res.json();
+        applyFilters();
+      } catch (err) {
+        alert('Failed to fetch session data');
+        console.error(err);
+      }
+    }
+    function downloadChart() {
+      const canvas = document.getElementById('chartCanvas');
+      const ctx = canvas.getContext('2d');
+
+      // Temporarily set white background for export
+      const backup = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      ctx.save();
+      ctx.globalCompositeOperation = 'destination-over';
+      ctx.fillStyle = 'white';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.restore();
+
+      // Custom filename
+      const date = new Date().toISOString().split('T')[0];
+      const type = currentChartType || 'chart';
+      const fileName = `${type}_${date}.png`;
+
+      // Download
+      const link = document.createElement('a');
+      link.download = fileName;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+
+      // Restore original chart (if needed)
+      ctx.putImageData(backup, 0, 0);
+    }
+
+
+
+    function applyFilters() {
+      const verdict = document.getElementById('verdictFilter').value;
+      const startDate = document.getElementById('startDate').value;
+      const endDate = document.getElementById('endDate').value;
+
+      filteredData = sessionData.filter(session => {
+        const matchVerdict = verdict === 'all' || session.verdict === verdict;
+        const sessionDate = new Date(session.timestamp);
+        const matchStart = !startDate || sessionDate >= new Date(startDate);
+        const matchEnd = !endDate || sessionDate <= new Date(endDate);
+        return matchVerdict && matchStart && matchEnd;
+      });
+
+      currentPage = 1;
+      renderPage();
+      renderChart();
+    }
+
+    function renderPage() {
+      const tbody = document.querySelector('#sessionTable tbody');
+      tbody.innerHTML = '';
+
+      const start = (currentPage - 1) * pageSize;
+      const end = start + pageSize;
+      const currentData = filteredData.slice(start, end);
+
+      currentData.forEach(session => {
+        const row = document.createElement('tr');
+        row.className = session.verdict === 'bot' ? 'bot' : 'human';
+        row.innerHTML = `
+          <td data-label="Timestamp">${session.timestamp}</td>
+          <td data-label="Verdict">${session.verdict}</td>
+          <td data-label="Confidence">${session.confidence}</td>
+          <td data-label="Details" class="json-cell">${JSON.stringify(session.raw, null, 2)}</td>
+        `;
+        tbody.appendChild(row);
+      });
+
+      document.getElementById('pageIndicator').textContent = `Page ${currentPage}`;
+    }
+
+    function prevPage() {
+      if (currentPage > 1) {
+        currentPage--;
+        renderPage();
+      }
+    }
+
+    function nextPage() {
+      if (currentPage * pageSize < filteredData.length) {
+        currentPage++;
+        renderPage();
+      }
+    }
+
+    function downloadCSV() {
+      const rows = [['Timestamp', 'Verdict', 'Confidence', 'Raw']];
+      filteredData.forEach(s => {
+        rows.push([s.timestamp, s.verdict, s.confidence, JSON.stringify(s.raw).replace(/\n/g, ' ')]);
+      });
+      const csvContent = rows.map(e => e.map(cell => `"${cell}"`).join(',')).join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'session_data.csv';
+      link.click();
+    }
+
+    function renderChart() {
+      const type = document.getElementById('chartType').value;
+
+      const verdictCounts = filteredData.reduce((acc, s) => {
+        acc[s.verdict] = (acc[s.verdict] || 0) + 1;
+        return acc;
+      }, {});
+
+      const timestamps = filteredData.map(s => s.timestamp);
+      const confidences = filteredData.map(s => s.confidence);
+
+      if (chart) chart.destroy();
+
+      chart = new Chart(document.getElementById('chartCanvas').getContext('2d'), {
+        type,
+        data: type === 'line' ? {
+          labels: timestamps,
+          datasets: [{
+            label: 'Confidence Over Time',
+            data: confidences,
+            fill: false,
+            borderColor: '#3498db',
+            tension: 0.1
+          }]
+        } : {
+          labels: Object.keys(verdictCounts),
+          datasets: [{
+            label: 'Sessions',
+            data: Object.values(verdictCounts),
+            backgroundColor: ['#2ecc71', '#e74c3c']
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: { display: true }
+          },
+          scales: type === 'line' ? {
+            x: { display: false }
+          } : {}
+        }
+      });
+    }
+
+    fetchSessions();
+  </script>
+</body>
+
+</html>
